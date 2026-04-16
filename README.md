@@ -42,10 +42,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@<version>
 
       - name: Create version releases
-        uses: open-climpr/semver-release@v1
+        uses: open-climpr/semver-release@<version>
         with:
           update-type: ${{ github.event.inputs.update-type }}
           label: ${{ github.event.inputs.label }}
