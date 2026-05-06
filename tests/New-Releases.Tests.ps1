@@ -5,13 +5,12 @@ BeforeAll {
 
     # Builds a minimal release object matching the gh JSON schema
     function New-Release {
-        param([string]$TagName, [bool]$IsLatest = $false, [bool]$IsPrerelease = $false)
+        param([string]$TagName, [bool]$IsLatest = $false)
         [PSCustomObject]@{
-            name         = $TagName
-            tagName      = $TagName
-            isLatest     = $IsLatest
-            isPrerelease = $IsPrerelease
-            isDraft      = $false
+            name     = $TagName
+            tagName  = $TagName
+            isLatest = $IsLatest
+            isDraft  = $false
         }
     }
 
@@ -40,6 +39,47 @@ Describe 'New-Releases.ps1' {
             & $script:ScriptPath -UpdateType patch
             Should -Invoke gh -ParameterFilter {
                 $args[0] -eq 'release' -and $args[1] -eq 'create' -and $args[2] -eq 'v0.1.0'
+            }
+        }
+        It 'creates first release at v0.1.0 when no releases exist and UpdateType is minor' {
+            & $script:ScriptPath -UpdateType minor
+            Should -Invoke gh -ParameterFilter {
+                $args[0] -eq 'release' -and $args[1] -eq 'create' -and $args[2] -eq 'v0.1.0'
+            }
+        }
+
+        It 'creates first release at v1.0.0 when no releases exist and UpdateType is major' {
+            & $script:ScriptPath -UpdateType major
+            Should -Invoke gh -ParameterFilter {
+                $args[0] -eq 'release' -and $args[1] -eq 'create' -and $args[2] -eq 'v1.0.0'
+            }
+        }
+
+        It 'creates floating minor release v0.1 when no releases exist' {
+            & $script:ScriptPath -UpdateType patch
+            Should -Invoke gh -ParameterFilter {
+                $args[0] -eq 'release' -and $args[1] -eq 'create' -and $args[2] -eq 'v0.1'
+            }
+        }
+
+        It 'creates floating major release v0 when no releases exist' {
+            & $script:ScriptPath -UpdateType patch
+            Should -Invoke gh -ParameterFilter {
+                $args[0] -eq 'release' -and $args[1] -eq 'create' -and $args[2] -eq 'v0'
+            }
+        }
+
+        It 'creates floating minor release v1.0 when UpdateType is major and no releases exist' {
+            & $script:ScriptPath -UpdateType major
+            Should -Invoke gh -ParameterFilter {
+                $args[0] -eq 'release' -and $args[1] -eq 'create' -and $args[2] -eq 'v1.0'
+            }
+        }
+
+        It 'creates floating major release v1 when UpdateType is major and no releases exist' {
+            & $script:ScriptPath -UpdateType major
+            Should -Invoke gh -ParameterFilter {
+                $args[0] -eq 'release' -and $args[1] -eq 'create' -and $args[2] -eq 'v1'
             }
         }
     }
@@ -112,7 +152,7 @@ Describe 'New-Releases.ps1' {
                 if ($args[0] -eq 'release' -and $args[1] -eq 'list') {
                     return ConvertTo-ReleasesJson @(
                         New-Release 'v1.2.3'
-                        New-Release 'v1.3.0-beta' -IsLatest $true -IsPrerelease $true
+                        New-Release 'v1.3.0-beta' -IsLatest $true
                         New-Release 'v1.3.0-rc'
                     )
                 }
@@ -160,11 +200,11 @@ Describe 'New-Releases.ps1' {
             }
         }
 
-        It 'passes --latest=false and --prerelease=false when Label is set' {
+        It 'passes --latest=false and --prerelease=true when Label is set' {
             & $script:ScriptPath -UpdateType patch -Label 'alpha'
             Should -Invoke gh -ParameterFilter {
                 $args[0] -eq 'release' -and $args[1] -eq 'create' -and
-                $args -contains '--latest=false' -and $args -contains '--prerelease=false'
+                $args -contains '--latest=false' -and $args -contains '--prerelease=true'
             }
         }
 
@@ -253,6 +293,34 @@ Describe 'New-Releases.ps1' {
             Should -Invoke git -ParameterFilter {
                 $args[0] -eq 'tag' -and $args[1] -eq '-fa' -and $args[2] -eq 'v0'
             }
+        }
+
+        It 'force-creates the labeled semver tag when a label is set' {
+            & $script:ScriptPath -UpdateType patch -Label 'alpha'
+            Should -Invoke git -ParameterFilter {
+                $args[0] -eq 'tag' -and $args[1] -eq '-fa' -and $args[2] -eq 'v0.1.0-alpha'
+            }
+        }
+
+        It 'pushes tags to remote three times for a full stable release' {
+            & $script:ScriptPath -UpdateType patch
+            Should -Invoke git -ParameterFilter {
+                $args[0] -eq 'push' -and $args -contains '--tags' -and $args -contains '--force'
+            } -Times 3
+        }
+
+        It 'pushes tags to remote only once when a label suppresses floating releases' {
+            & $script:ScriptPath -UpdateType patch -Label 'alpha'
+            Should -Invoke git -ParameterFilter {
+                $args[0] -eq 'push' -and $args -contains '--tags' -and $args -contains '--force'
+            } -Times 1
+        }
+
+        It 'pushes tags to remote only once when PreRelease suppresses floating releases' {
+            & $script:ScriptPath -UpdateType patch -PreRelease $true
+            Should -Invoke git -ParameterFilter {
+                $args[0] -eq 'push' -and $args -contains '--tags' -and $args -contains '--force'
+            } -Times 1
         }
     }
 
@@ -444,5 +512,51 @@ Describe 'New-Releases.ps1' {
                 Where-Object { $_ -is [System.Management.Automation.WarningRecord] }
             $warnings | Where-Object { $_ -match 'Skipping notes update for v1:' } | Should -Not -BeNullOrEmpty
         }
+    }
+
+    # ---------------------------------------------------------------------------
+    Context 'v0.x major float - no self-referencing start tag' {
+
+        It 'creates v0 float with fallback notes when no prior major exists (first-ever release)' {
+            # $newMajor=0 → no previous major; must use fallback --notes, not --notes-start-tag v0
+            & $script:ScriptPath -UpdateType patch
+            Should -Invoke gh -ParameterFilter {
+                $args[0] -eq 'release' -and $args[1] -eq 'create' -and $args[2] -eq 'v0' -and
+                $args -notcontains '--notes-start-tag' -and $args -contains '--notes'
+            }
+        }
+
+        It 'skips editing v0 notes when no previous major can supply a start tag' {
+            # v0.1 and v0 already exist; patch bump produces v0.1.1.
+            # $startTagMajor is $null (no v-1), so the edit path must not fire.
+            Mock gh {
+                if ($args[0] -eq 'release' -and $args[1] -eq 'list') {
+                    return ConvertTo-ReleasesJson @(
+                        New-Release 'v0.1.0' -IsLatest $true
+                        New-Release 'v0.1'
+                        New-Release 'v0'
+                    )
+                }
+                if ($args[0] -eq 'repo') { return 'https://github.com/test/repo' }
+            }
+            & $script:ScriptPath -UpdateType patch
+            Should -Invoke gh -ParameterFilter {
+                $args[0] -eq 'release' -and $args[1] -eq 'edit' -and $args[2] -eq 'v0'
+            } -Times 0
+        }
+    }
+
+    # ---------------------------------------------------------------------------
+    Context 'Release notes fallback' {
+
+        It 'uses manual notes for the minor float release when no start tag can be resolved' {
+            # No releases → $startTagMinor falls back to "v0.0" which has no release → manual notes path
+            & $script:ScriptPath -UpdateType patch
+            Should -Invoke gh -ParameterFilter {
+                $args[0] -eq 'release' -and $args[1] -eq 'create' -and $args[2] -eq 'v0.1' -and
+                $args -notcontains '--notes-start-tag' -and $args -contains '--notes'
+            }
+        }
+
     }
 }

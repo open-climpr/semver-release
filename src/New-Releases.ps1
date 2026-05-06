@@ -41,9 +41,11 @@ if ($latestSemver) {
     }
 }
 else {
-    $newMajor = 0
-    $newMinor = 1
-    $newPatch = 0
+    switch ($UpdateType) {
+        "major" { $newMajor = 1; $newMinor = 0; $newPatch = 0 }
+        "minor" { $newMajor = 0; $newMinor = 1; $newPatch = 0 }
+        "patch" { $newMajor = 0; $newMinor = 1; $newPatch = 0 }
+    }
 }
 
 #* Calculate semver tags
@@ -65,7 +67,8 @@ if (!($Label -or $PreRelease)) {
 }
 else {
     $releaseArgs += '--latest=false'
-    $releaseArgs += "--prerelease=$($PreRelease.ToString().ToLower())"
+    $isPrerelease = $PreRelease -or [bool]$Label
+    $releaseArgs += "--prerelease=$($isPrerelease.ToString().ToLower())"
 }
 if ($latestSemver) { $releaseArgs += @('--notes-start-tag', $latestSemver) }
 
@@ -118,12 +121,12 @@ if (!($Label -or $PreRelease)) {
     $existingMajor = $releases | Where-Object { $_.tagName -eq $newSemverMajor }
     $releaseMajor = !$existingMajor -or $UpdateType -eq "major"
 
-    $previousMajor = $newMajor -gt 0 ? $newMajor - 1 : 0
+    $previousMajor = $newMajor - 1
     $latestPrevMajorPatch = $stableSemverTags |
-        Where-Object { $_ -match "^v$previousMajor\." } |
+        Where-Object { $newMajor -gt 0 -and $_ -match "^v$previousMajor\." } |
         Sort-Object { ($_ -replace '^v') -as [version] } |
         Select-Object -Last 1
-    $startTagMajor = $latestPrevMajorPatch ? $latestPrevMajorPatch : "v$previousMajor"
+    $startTagMajor = $newMajor -gt 0 ? ($latestPrevMajorPatch ?? "v$previousMajor") : $null
 
     if ($releaseMajor) {
         Write-Host "Releasing $newSemverMajor"
@@ -131,7 +134,7 @@ if (!($Label -or $PreRelease)) {
             Write-Host "Deleting old release $newSemverMajor"
             gh release delete $newSemverMajor -y
         }
-        if ($releases | Where-Object { $_.tagName -eq $startTagMajor }) {
+        if ($startTagMajor -and ($releases | Where-Object { $_.tagName -eq $startTagMajor })) {
             gh release create $newSemverMajor --latest=false --generate-notes --notes-start-tag $startTagMajor
         }
         else {
@@ -139,8 +142,11 @@ if (!($Label -or $PreRelease)) {
         }
     }
     elseif ($existingMajor) {
-        if ($releases | Where-Object { $_.tagName -eq $startTagMajor }) {
+        if ($startTagMajor -and ($releases | Where-Object { $_.tagName -eq $startTagMajor })) {
             gh release edit $newSemverMajor --generate-notes --notes-start-tag $startTagMajor
+        }
+        elseif (!$startTagMajor) {
+            Write-Warning "Skipping notes update for ${newSemverMajor}: no previous major release exists"
         }
         else {
             Write-Warning "Skipping notes update for ${newSemverMajor}: start tag '$startTagMajor' not found"
