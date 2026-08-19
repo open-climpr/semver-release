@@ -14,6 +14,21 @@ param (
     $PreRelease = $false
 )
 
+function Update-ReleaseNotes {
+    param (
+        [Parameter(Mandatory)]
+        [string]
+        $TagName,
+
+        [Parameter(Mandatory)]
+        [string]
+        $StartTag
+    )
+
+    $notes = (gh api --method POST "repos/{owner}/{repo}/releases/generate-notes" --raw-field "tag_name=$TagName" --raw-field "previous_tag_name=$StartTag" --jq '.body') -join [Environment]::NewLine
+    gh release edit $TagName --notes $notes
+}
+
 #* Defaults
 $releases = gh release list --limit 500 --json "name,tagName,isLatest,isPrerelease,isDraft" | ConvertFrom-Json -NoEnumerate
 
@@ -107,7 +122,7 @@ if (!($Label -or $PreRelease)) {
     }
     elseif ($existingMinor) {
         if ($releases | Where-Object { $_.tagName -eq $startTagMinor }) {
-            gh release edit $newSemverMinor --generate-notes --notes-start-tag $startTagMinor
+            Update-ReleaseNotes -TagName $newSemverMinor -StartTag $startTagMinor
         }
         else {
             Write-Warning "Skipping notes update for ${newSemverMinor}: start tag '$startTagMinor' not found"
@@ -143,7 +158,7 @@ if (!($Label -or $PreRelease)) {
     }
     elseif ($existingMajor) {
         if ($startTagMajor -and ($releases | Where-Object { $_.tagName -eq $startTagMajor })) {
-            gh release edit $newSemverMajor --generate-notes --notes-start-tag $startTagMajor
+            Update-ReleaseNotes -TagName $newSemverMajor -StartTag $startTagMajor
         }
         elseif (!$startTagMajor) {
             Write-Warning "Skipping notes update for ${newSemverMajor}: no previous major release exists"
