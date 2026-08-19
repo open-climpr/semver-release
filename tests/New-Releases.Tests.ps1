@@ -340,7 +340,7 @@ Describe 'New-Releases.ps1' {
             }
         }
 
-        It 'edits existing minor release on patch bump' {
+        It 'regenerates notes before editing an existing minor release on patch bump' {
             Mock gh {
                 if ($args[0] -eq 'release' -and $args[1] -eq 'list') {
                     # v1.1.5 is in releases so $startTagMinor resolves to it and the edit path is taken
@@ -351,12 +351,20 @@ Describe 'New-Releases.ps1' {
                         New-Release 'v1'
                     )
                 }
+                if ($args[0] -eq 'api') { return @('Generated release notes', 'Second line') }
                 if ($args[0] -eq 'repo') { return 'https://github.com/test/repo' }
             }
+            $expectedNotes = @('Generated release notes', 'Second line') -join [Environment]::NewLine
             & $script:ScriptPath -UpdateType patch
             Should -Invoke gh -ParameterFilter {
+                $args[0] -eq 'api' -and $args[1] -eq '--method' -and $args[2] -eq 'POST' -and
+                $args[3] -eq 'repos/{owner}/{repo}/releases/generate-notes' -and
+                $args -contains 'tag_name=v1.2' -and $args -contains 'previous_tag_name=v1.1.5'
+            }
+            Should -Invoke gh -ParameterFilter {
                 $args[0] -eq 'release' -and $args[1] -eq 'edit' -and $args[2] -eq 'v1.2' -and
-                $args -contains '--notes-start-tag' -and $args -contains 'v1.1.5'
+                $args -contains '--notes' -and $args -contains $expectedNotes -and
+                $args -notcontains '--generate-notes' -and $args -notcontains '--notes-start-tag'
             }
         }
 
@@ -441,7 +449,7 @@ Describe 'New-Releases.ps1' {
             }
         }
 
-        It 'edits existing major release on patch bump' {
+        It 'regenerates notes before editing an existing major release on patch bump' {
             Mock gh {
                 if ($args[0] -eq 'release' -and $args[1] -eq 'list') {
                     # v0.9.0 is in releases so $startTagMajor resolves to it and the edit path is taken
@@ -453,12 +461,20 @@ Describe 'New-Releases.ps1' {
                         New-Release 'v1'
                     )
                 }
+                if ($args[0] -eq 'api') { return @('Generated release notes', 'Second line') }
                 if ($args[0] -eq 'repo') { return 'https://github.com/test/repo' }
             }
+            $expectedNotes = @('Generated release notes', 'Second line') -join [Environment]::NewLine
             & $script:ScriptPath -UpdateType patch
             Should -Invoke gh -ParameterFilter {
+                $args[0] -eq 'api' -and $args[1] -eq '--method' -and $args[2] -eq 'POST' -and
+                $args[3] -eq 'repos/{owner}/{repo}/releases/generate-notes' -and
+                $args -contains 'tag_name=v1' -and $args -contains 'previous_tag_name=v0.9.0'
+            }
+            Should -Invoke gh -ParameterFilter {
                 $args[0] -eq 'release' -and $args[1] -eq 'edit' -and $args[2] -eq 'v1' -and
-                $args -contains '--notes-start-tag' -and $args -contains 'v0.9.0'
+                $args -contains '--notes' -and $args -contains $expectedNotes -and
+                $args -notcontains '--generate-notes' -and $args -notcontains '--notes-start-tag'
             }
         }
 
